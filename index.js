@@ -1,11 +1,13 @@
 const https = require('https');
 
 const TOKEN = '8410226405:AAEcWtTzMCXOOcseAJ7I8Y75XoChXvqvpus';
+const PAIRGATE_API_KEY = 'PG_live_CCKQ1y20gvzFqHquhedCqNQOjMTBJRqEFdrKSD3uP0Edc';
+
 let lastUpdateId = 0;
 const processedUpdates = new Set();
 const userState = {};
 
-console.log("Vandeza bot running with verified Pairgate wholesale margins...");
+console.log("Vandeza bot running with live Pairgate API integration...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -50,7 +52,7 @@ function handleUpdate(update) {
         const username = update.message.from.username ? `@${update.message.from.username}` : 'No Username';
 
         if (userState[chatId]) {
-            handleSupportInput(chatId, text, username);
+            handleActiveState(chatId, text, username);
             return;
         }
 
@@ -93,13 +95,14 @@ function handleUpdate(update) {
         else if (data === 'network_9mobile') { sendNineMobileMenu(chatId, messageId); }
         else if (data === '9mobile_page_2') { sendNineMobileMenuPage2(chatId, messageId); }
 
-        // Purchase Handlers
-        else if (data.startsWith('buy_glo_') || data.startsWith('buy_mtn_') || data.startsWith('buy_airtel_') || data.startsWith('buy_9mobile_')) {
-            const netKey = data.split('_')[1];
-            const networkPrefix = netKey.toUpperCase();
-            const orderText = `🚀 *API Order Triggered!*\n\nNetwork: \`${networkPrefix}\`\nSelected Code: \`${data}\`\n\nThis will connect to Pairgate wholesale fulfillment while keeping your markup profit secure!`;
-            const backKeyboard = { inline_keyboard: [[{ text: `⬅️ Back to ${networkPrefix} Menu`, callback_data: `network_${netKey}` }]] };
-            editMessage(chatId, messageId, orderText, backKeyboard);
+        // Purchase Selection Trigger -> Prompt for Phone Number
+        else if (data.startsWith('buy_')) {
+            userState[chatId] = { step: 'awaiting_phone', planCode: data };
+            const parts = data.split('_');
+            const net = parts[1].toUpperCase();
+            const promptText = `📱 *Enter Recipient Phone Number*\n\nYou selected a *${net}* data plan.\n\nPlease type the 11-digit phone number to receive this data (e.g., 08012345678):`;
+            const cancelKeyboard = { inline_keyboard: [[{ text: '❌ Cancel', callback_data: `network_${parts[1]}` }]] };
+            editMessage(chatId, messageId, promptText, cancelKeyboard);
         } 
         else if (data === 'main_menu') {
             delete userState[chatId];
@@ -128,6 +131,81 @@ function handleUpdate(update) {
             editMessage(chatId, messageId, comingSoonText, backKeyboard);
         }
     }
+}
+
+function handleActiveState(chatId, text, username) {
+    const state = userState[chatId];
+
+    if (state.step === 'awaiting_phone') {
+        const phone = text.trim();
+        if (phone.length < 10) {
+            sendMessage(chatId, "⚠️ Please enter a valid 11-digit phone number:");
+            return;
+        }
+        state.phone = phone;
+        const planCode = state.planCode;
+        delete userState[chatId]; // Clear state
+
+        sendMessage(chatId, `⏳ Processing your order for *${phone}* via Pairgate API... Please wait.`);
+        executePairgatePurchase(chatId, planCode, phone);
+    } 
+    else {
+        handleSupportInput(chatId, text, username);
+    }
+}
+
+// --- PAIRGATE LIVE API PURCHASE TRIGGER ---
+function executePairgatePurchase(chatId, planCode, phone) {
+    const parts = planCode.split('_');
+    const network = parts[1]; // mtn, glo, airtel, 9mobile
+    const tier = parts[2];
+
+    // Map your plan codes to Pairgate request payload according to their API docs
+    const postData = JSON.stringify({
+        network: network,
+        plan: tier,
+        phone: phone
+    });
+
+    const options = {
+        hostname: 'pairgate.com',
+        port: 443,
+        path: '/api/v1/data', // Standard Pairgate data endpoint
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${PAIRGATE_API_KEY}`,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(postData)
+        }
+    };
+
+    const req = https.request(options, (res) => {
+        let responseBody = '';
+        res.on('data', (chunk) => { responseBody += chunk; });
+        res.on('end', () => {
+            try {
+                const result = JSON.parse(responseBody);
+                if (res.statusCode === 200 && (result.status === 'success' || result.success)) {
+                    sendMessage(chatId, `🎉 *Data Purchase Successful!*\n\n` +
+                                        `Network: \`${network.toUpperCase()}\`\n` +
+                                        `Recipient: \`${phone}\`\n` +
+                                        `Status: Delivered ✅\n\nThank you for using Vandeza!`, { parse_mode: 'Markdown' });
+                } else {
+                    sendMessage(chatId, `❌ *Transaction Failed*\n\nReason: ${result.message || 'Unable to complete fulfillment at the moment.'}\nPlease try again or contact support.`, { parse_mode: 'Markdown' });
+                }
+            } catch (e) {
+                sendMessage(chatId, `✅ *Order Request Sent*\n\nYour request for ${phone} has been transmitted to Pairgate. Check transaction status in your dashboard.`);
+            }
+        });
+    });
+
+    req.on('error', (err) => {
+        console.error('Pairgate API error:', err);
+        sendMessage(chatId, `⚠️ Network connection error with Pairgate fulfillment server. Please try again shortly.`);
+    });
+
+    req.write(postData);
+    req.end();
 }
 
 function sendMainMenu(chatId, name) {
@@ -173,7 +251,7 @@ function sendNetworkMenu(chatId, messageId) {
     editMessage(chatId, messageId, "📶 *Data & Airtime Service*\n\nPlease select your target Network Provider below:", networkKeyboard);
 }
 
-// --- GLO PAGINATED MENU (Accurate Margins) ---
+// --- GLO PAGINATED MENU ---
 function sendGloMenu(chatId, messageId) {
     const gloKeyboard = {
         inline_keyboard: [
@@ -214,7 +292,7 @@ function sendGloMenuPage2(chatId, messageId) {
     editMessage(chatId, messageId, "🟢 *Glo Data Hub (Page 2/2)*\n*Heavyweight plans:*", gloKeyboardPage2);
 }
 
-// --- MTN PAGINATED MENU (Accurate Margins) ---
+// --- MTN PAGINATED MENU ---
 function sendMtnMenu(chatId, messageId) {
     const mtnKeyboard = {
         inline_keyboard: [
