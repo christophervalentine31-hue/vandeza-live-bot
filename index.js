@@ -1,198 +1,196 @@
-// index.js - Upgraded Vandeza Fintech Design (Long Polling)
 const https = require('https');
 
-// YOUR BOT TOKEN (RETAINED)
 const TOKEN = '8410226405:AAEcWtTzMCXOOcseAJ7I8Y75XoChXvqvpus';
-const BASE_URL = `https://api.telegram.org/bot${TOKEN}`;
+let lastUpdateId = 0;
 
-let offset = 0;
+// Track user states for support/refund flow (e.g., waiting for bank account number)
+const userState = {};
 
-// Helper to send HTTPS POST requests to Telegram
-function sendRequest(method, data) {
-    return new Promise((resolve, reject) => {
-        const url = new URL(`${BASE_URL}/${method}`);
-        const payload = JSON.stringify(data);
+console.log("Vandeza bot is running with Fintech UI & Support Assistant...");
 
-        const options = {
-            hostname: url.hostname,
-            path: url.pathname,
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Content-Length': Buffer.byteLength(payload)
-            }
-        };
+function pollUpdates() {
+    const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
 
-        const req = https.request(options, (res) => {
-            let body = '';
-            res.on('data', (chunk) => body += chunk);
-            res.on('end', () => {
-                try {
-                    resolve(JSON.parse(body));
-                } catch (e) {
-                    reject(e);
+    https.get(url, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+            try {
+                const response = JSON.parse(data);
+                if (response.ok && response.result) {
+                    for (let update of response.result) {
+                        lastUpdateId = update.update_id;
+                        handleUpdate(update);
+                    }
                 }
-            });
+            } catch (e) {
+                console.error("Error parsing updates:", e);
+            }
+            setTimeout(pollUpdates, 1000);
         });
-
-        req.on('error', (err) => reject(err));
-        req.write(payload);
-        req.end();
+    }).on('error', (err) => {
+        console.error("Network error:", err);
+        setTimeout(pollUpdates, 5000);
     });
 }
 
-// Function to send or edit messages with keyboards
-async function sendMessage(chatId, text, replyMarkup = null) {
-    const payload = {
-        chat_id: chatId,
-        text: text,
-        parse_mode: 'Markdown' // Essential for professional text formatting
-    };
-    if (replyMarkup) {
-        payload.reply_markup = replyMarkup;
-    }
-    try {
-        await sendRequest('sendMessage', payload);
-    } catch (error) {
-        console.error('Error sending message:', error);
-    }
-}
-
-// Acknowledge callback queries to stop the loading spinner
-async function answerCallbackQuery(callbackQueryId, text = null) {
-    const payload = { callback_query_id: callbackQueryId };
-    if (text) payload.text = text;
-    try {
-        await sendRequest('answerCallbackQuery', payload);
-    } catch (error) {
-        console.error('Error answering callback:', error);
-    }
-}
-
-// The core logic that handles every Telegram interaction
-async function handleUpdate(update) {
-    // 1. Handling Text Commands (like /start)
-    if (update.message && update.message.text) {
+function handleUpdate(update) {
+    if (update.message) {
         const chatId = update.message.chat.id;
-        const text = update.message.text.trim();
-        const userName = update.message.from.first_name || 'Valued User';
+        const text = update.message.text;
+        const firstName = update.message.from.first_name || 'User';
+        const username = update.message.from.username ? `@${update.message.from.username}` : 'No Username';
+
+        // Check if user is in a middle of a support/refund input flow
+        if (userState[chatId]) {
+            handleSupportInput(chatId, text, username);
+            return;
+        }
 
         if (text === '/start') {
-            // MATCHING MOCKUP 1: MAIN MENU
-            const welcomeText = `🏛️ *Vandeza*\n\nWelcome to *Vandeza*! 🚀\nYour premier VTU & Payments Hub.`;
-            
-            // Re-creating the professional 6-button grid using emojis
-            const keyboard = {
-                inline_keyboard: [
-                    [
-                        { text: '📶 Data & Airtime', callback_data: 'service_data' },
-                        { text: '📺 Cable TV', callback_data: 'service_cable' }
-                    ],
-                    [
-                        { text: '💡 Electricity', callback_data: 'service_electricity' },
-                        { text: '🌐 Internet', callback_data: 'service_internet' }
-                    ],
-                    [
-                        { text: '💳 Fund Wallet', callback_data: 'menu_fund' },
-                        { text: '👤 My Profile', callback_data: 'menu_profile' }
-                    ]
-                ]
-            };
-
-            await sendMessage(chatId, welcomeText, keyboard);
-        }
-    }
-
-    // 2. Handling Button Clicks (Callback Queries)
-    if (update.callback_query) {
-        const callbackQuery = update.callback_query;
-        const chatId = callbackQuery.message.chat.id;
-        const data = callbackQuery.data;
-
-        // Immediately acknowledge the click
-        await answerCallbackQuery(callbackQuery.id);
-
-        if (data === 'service_data') {
-            // MATCHING MOCKUP 3: DATA NETWORK SELECT
-            const text = `📶 *Select your Network Provider*:\n\nPlease select the mobile network you wish to buy data for:`;
-            
-            const keyboard = {
-                inline_keyboard: [
-                    [
-                        { text: '💛 MTN', callback_data: 'network_mtn' },
-                        { text: '❤️ Airtel', callback_data: 'network_airtel' }
-                    ],
-                    [
-                        { text: '💚 GLO', callback_data: 'network_glo' },
-                        { text: '🤍 9Mobile', callback_data: 'network_9mobile' }
-                    ],
-                    [
-                        { text: '🔙 Back to Menu', callback_data: 'main_menu' }
-                    ]
-                ]
-            };
-            await sendMessage(chatId, text, keyboard);
-        } else if (data === 'menu_profile') {
-            // MATCHING MOCKUP 6: MY PROFILE
-            const firstName = callbackQuery.from.first_name || 'User';
-            const lastName = callbackQuery.from.last_name || '';
-            const telegramId = callbackQuery.from.id;
-
-            const text = `👤 *Your Profile Details*\n\n` +
-                         `*Name:* ${firstName} ${lastName}\n` +
-                         `*Telegram ID:* \`${telegramId}\`\n\n` +
-                         `*Wallet Balance:* ₦0.00\n` +
-                         `*Status:* Active 🟢`;
-            
-            const keyboard = {
-                inline_keyboard: [
-                    [ { text: '💳 Fund Wallet', callback_data: 'menu_fund' } ],
-                    [ { text: '📊 Transaction History', callback_data: 'history' } ],
-                    [ { text: '🔙 Back to Menu', callback_data: 'main_menu' } ]
-                ]
-            };
-            await sendMessage(chatId, text, keyboard);
-        } else if (data === 'main_menu') {
-            // Helper to return to the welcome screen
-            const welcomeText = `🏛️ *Vandeza*\n\nWelcome back to *Vandeza*! 🚀\nYour premier VTU & Payments Hub.`;
-            const keyboard = {
-                inline_keyboard: [
-                    [{ text: '📶 Data & Airtime', callback_data: 'service_data' }, { text: '📺 Cable TV', callback_data: 'service_cable' }],
-                    [{ text: '💡 Electricity', callback_data: 'service_electricity' }, { text: '🌐 Internet', callback_data: 'service_internet' }],
-                    [{ text: '💳 Fund Wallet', callback_data: 'menu_fund' }, { text: '👤 My Profile', callback_data: 'menu_profile' }]
-                ]
-            };
-            await sendMessage(chatId, welcomeText, keyboard);
+            sendMainMenu(chatId, firstName);
+        } else if (text === 'support_refund') {
+            startSupportFlow(chatId);
         } else {
-            // Temporary placeholder for unimplemented features
-            await sendMessage(chatId, `🛠️ *Feature Coming Soon*:\nThe selection \`${data}\` is not yet implemented, but it looks great in the design!`);
+            sendMessage(chatId, "Please use the menu buttons below to navigate Vandeza.");
+        }
+    } 
+    else if (update.callback_query) {
+        const chatId = update.callback_query.message.chat.id;
+        const data = update.callback_query.data;
+        const username = update.callback_query.from.username ? `@${update.callback_query.from.username}` : 'No Username';
+
+        answerCallbackQuery(update.callback_query.id);
+
+        if (data === 'menu_fund') {
+            // Trigger the support & refund assistant flow
+            startSupportFlow(chatId);
+        } else if (data === 'menu_profile') {
+            sendMessage(chatId, `👤 **My Profile**\n\n* Name: ${update.callback_query.from.first_name}\n* Username: ${username}\n* Wallet Balance: ₦0.00\n* Status: Active Reseller Customer`, { parse_mode: 'Markdown' });
+        } else {
+            sendMessage(chatId, `🛠️ **Feature Coming Soon:**\nThe selection \`${data}\` is under configuration, but your fintech hub is live!`, { parse_mode: 'Markdown' });
         }
     }
 }
 
-// Long Polling function to fetch updates constantly
-async function poll() {
-    try {
-        const response = await sendRequest('getUpdates', {
-            offset: offset,
-            timeout: 30 // Wait for up to 30s before returning empty (saves resources)
-        });
+function sendMainMenu(chatId, name) {
+    // Clear any active state when starting fresh
+    delete userState[chatId];
 
-        if (response && response.ok && response.result) {
-            for (const update of response.result) {
-                // Confirm processing this update so it is not sent again
-                offset = update.update_id + 1;
-                handleUpdate(update).catch(err => console.error('Error handling update:', err));
-            }
-        }
-    } catch (error) {
-        console.error('Polling error:', error);
-    }
+    const welcomeText = `🏛️ *Vandeza*\n\nWelcome to Vandeza! 🚀\nYour premier VTU & Payments Hub, *${name}*.`;
+    
+    const keyboard = {
+        inline_keyboard: [
+            [
+                { text: '📶 Data & Airtime', callback_data: 'service_data' },
+                { text: '📺 Cable TV', callback_data: 'service_cable' }
+            ],
+            [
+                { text: '💡 Electricity', callback_data: 'service_electricity' },
+                { text: '🌐 Internet', callback_data: 'service_internet' }
+            ],
+            [
+                { text: '💳 Fund Wallet / Support', callback_data: 'menu_fund' },
+                { text: '👤 My Profile', callback_data: 'menu_profile' }
+            ]
+        ]
+    };
 
-    // Immediately start polling again for the next update
-    setTimeout(poll, 100); 
+    sendMessage(chatId, welcomeText, { parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
-// Initial script execution
-console.log('✅ Vandeza Upgraded Design bot is running on native polling...');
-poll();
+function startSupportFlow(chatId) {
+    userState[chatId] = { step: 'awaiting_amount' };
+    
+    const msg = `🤝 *Vandeza Support & Overfunding Assistant*\n\n` +
+                `Wallet deposits are strictly locked for automated service purchases (Data, Airtime, Bills).\n\n` +
+                `If you mistakenly overfunded your account and need a manual refund, let's collect your safe bank details.\n\n` +
+                `*Step 1/3:* Please enter the *exact amount* you mistakenly transferred (e.g., ₦5000):`;
+    
+    sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+}
+
+function handleSupportInput(chatId, text, username) {
+    const state = userState[chatId];
+
+    if (state.step === 'awaiting_amount') {
+        state.amount = text;
+        state.step = 'awaiting_account_number';
+        sendMessage(chatId, `✅ Amount recorded: *${text}*\n\n*Step 2/3:* Please enter your 10-digit *Bank Account Number*:`, { parse_mode: 'Markdown' });
+    } 
+    else if (state.step === 'awaiting_account_number') {
+        state.accountNumber = text;
+        state.step = 'awaiting_bank_name';
+        sendMessage(chatId, `✅ Account Number recorded.\n\n*Step 3/3:* Please enter your *Bank Name* (e.g., OPay, Moniepoint, Access):`, { parse_mode: 'Markdown' });
+    } 
+    else if (state.step === 'awaiting_bank_name') {
+        state.bankName = text;
+        state.step = 'awaiting_account_name';
+        sendMessage(chatId, `✅ Bank Name recorded.\n\nFinally, please enter your exact *Account Name* as registered on your bank account:`, { parse_mode: 'Markdown' });
+    } 
+    else if (state.step === 'awaiting_account_name') {
+        state.accountName = text;
+        
+        // Summary message back to user
+        const summary = `🎉 *Refund Request Submitted Successfully!*\n\n` +
+                        `Our admin team has received your details for review:\n` +
+                        `* Amount: ${state.amount}\n` +
+                        `* Account Number: ${state.accountNumber}\n` +
+                        `* Bank: ${state.bankName}\n` +
+                        `* Account Name: ${state.accountName}\n\n` +
+                        `Your refund will be processed shortly. Thank you for using Vandeza!`;
+        
+        sendMessage(chatId, summary, { parse_mode: 'Markdown' });
+
+        // NOTE: In a future upgrade, you can have this forward directly to your admin chat ID!
+        console.log(`NEW REFUND TICKET from ${username} (${chatId}): Amount: ${state.amount}, Acc: ${state.accountNumber}, Bank: ${state.bankName}, Name: ${state.accountName}`);
+
+        // Clear user state
+        delete userState[chatId];
+    }
+}
+
+function sendMessage(chatId, text, extra = {}) {
+    const data = JSON.stringify({ chat_id: chatId, text: text, ...extra });
+    const options = {
+        hostname: 'api.telegram.org',
+        port: 443,
+        path: `/bot${TOKEN}/sendMessage`,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(data)
+        }
+    };
+
+    const req = https.request(options, (res) => {
+        res.on('data', () => {});
+    });
+    req.on('error', (e) => {
+        console.error('Error sending message:', e);
+    });
+    req.write(data);
+    req.end();
+}
+
+function answerCallbackQuery(callbackQueryId) {
+    const data = JSON.stringify({ callback_query_id: callbackQueryId });
+    const options = {
+        hostname: 'api.telegram.org',
+        port: 443,
+        path: `/bot${TOKEN}/answerCallbackQuery`,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(data)
+        }
+    };
+
+    const req = https.request(options, (res) => {
+        res.on('data', () => {});
+    });
+    req.write(data);
+    req.end();
+}
+
+pollUpdates();
