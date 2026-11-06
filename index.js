@@ -5,7 +5,7 @@ let lastUpdateId = 0;
 const processedUpdates = new Set();
 const userState = {};
 
-console.log("Vandeza bot running with single-instance UI editor...");
+console.log("Vandeza bot running with all networks (MTN, Airtel, Glo, 9mobile)...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -80,12 +80,24 @@ function handleUpdate(update) {
         else if (data === 'service_data') {
             sendNetworkMenu(chatId, messageId);
         } 
+        // Network Menus
+        else if (data === 'network_mtn') {
+            sendMtnMenu(chatId, messageId);
+        }
+        else if (data === 'network_airtel') {
+            sendAirtelMenu(chatId, messageId);
+        }
         else if (data === 'network_glo') {
             sendGloMenu(chatId, messageId);
-        } 
-        else if (data.startsWith('buy_glo_')) {
-            const orderText = `🚀 *API Order Triggered!*\n\nYou selected: \`${data}\`\nThis will soon forward straight to Pairgate wholesale fulfillment while keeping your markup profit secure!`;
-            const backKeyboard = { inline_keyboard: [[{ text: '⬅️ Back to Glo Menu', callback_data: 'network_glo' }]] };
+        }
+        else if (data === 'network_9mobile') {
+            sendNineMobileMenu(chatId, messageId);
+        }
+        // Purchase Handlers
+        else if (data.startsWith('buy_glo_') || data.startsWith('buy_mtn_') || data.startsWith('buy_airtel_') || data.startsWith('buy_9mobile_')) {
+            const networkPrefix = data.split('_')[1].toUpperCase();
+            const orderText = `🚀 *API Order Triggered!*\n\nNetwork: \`${networkPrefix}\`\nSelected Code: \`${data}\`\n\nThis will connect to Pairgate wholesale fulfillment while keeping your markup profit secure!`;
+            const backKeyboard = { inline_keyboard: [[{ text: `⬅️ Back to ${networkPrefix} Menu`, callback_data: `network_${data.split('_')[1]}` }]] };
             editMessage(chatId, messageId, orderText, backKeyboard);
         } 
         else if (data === 'main_menu') {
@@ -160,6 +172,7 @@ function sendNetworkMenu(chatId, messageId) {
     editMessage(chatId, messageId, "📶 *Data & Airtime Service*\n\nPlease select your target Network Provider below:", networkKeyboard);
 }
 
+// GLO Menu
 function sendGloMenu(chatId, messageId) {
     const gloKeyboard = {
         inline_keyboard: [
@@ -180,6 +193,73 @@ function sendGloMenu(chatId, messageId) {
         ]
     };
     editMessage(chatId, messageId, "🟢 *Glo Network Selected*\n\nChoose your preferred GLO data plan below:", gloKeyboard);
+}
+
+// MTN Menu (Market Hook & Marked up tiers)
+function sendMtnMenu(chatId, messageId) {
+    const mtnKeyboard = {
+        inline_keyboard: [
+            [
+                { text: 'MTN 500MB (₦150)', callback_data: 'buy_mtn_500m' },
+                { text: 'MTN 1GB (₦290)', callback_data: 'buy_mtn_1gb' }
+            ],
+            [
+                { text: 'MTN 2GB (₦580)', callback_data: 'buy_mtn_2gb' },
+                { text: 'MTN 3GB (₦870)', callback_data: 'buy_mtn_3gb' }
+            ],
+            [
+                { text: 'MTN 5GB (₦1,450)', callback_data: 'buy_mtn_5gb' }
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    editMessage(chatId, messageId, "🟡 *MTN Network Selected*\n\nChoose your preferred MTN data plan below:", mtnKeyboard);
+}
+
+// Airtel Menu
+function sendAirtelMenu(chatId, messageId) {
+    const airtelKeyboard = {
+        inline_keyboard: [
+            [
+                { text: 'Airtel 100MB (₦100)', callback_data: 'buy_airtel_100m' },
+                { text: 'Airtel 300MB (₦300)', callback_data: 'buy_airtel_300m' }
+            ],
+            [
+                { text: 'Airtel 750MB (₦500)', callback_data: 'buy_airtel_750m' },
+                { text: 'Airtel 1GB (₦320)', callback_data: 'buy_airtel_1gb' }
+            ],
+            [
+                { text: 'Airtel 2GB (₦620)', callback_data: 'buy_airtel_2gb' },
+                { text: 'Airtel 5GB (₦1,500)', callback_data: 'buy_airtel_5gb' }
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    editMessage(chatId, messageId, "🔴 *Airtel Network Selected*\n\nChoose your preferred Airtel data plan below:", airtelKeyboard);
+}
+
+// 9mobile Menu
+function sendNineMobileMenu(chatId, messageId) {
+    const nineMobileKeyboard = {
+        inline_keyboard: [
+            [
+                { text: '9mobile 500MB (₦350)', callback_data: 'buy_9mobile_500m' },
+                { text: '9mobile 1GB (₦500)', callback_data: 'buy_9mobile_1gb' }
+            ],
+            [
+                { text: '9mobile 2GB (₦950)', callback_data: 'buy_9mobile_2gb' },
+                { text: '9mobile 3GB (₦1,400)', callback_data: 'buy_9mobile_3gb' }
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    editMessage(chatId, messageId, "📱 *9mobile Network Selected*\n\nChoose your preferred 9mobile data plan below:", nineMobileKeyboard);
 }
 
 function startSupportFlow(chatId) {
@@ -220,6 +300,7 @@ function handleSupportInput(chatId, text, username) {
                         `Your refund will be processed shortly. Thank you for using Vandeza!`;
         sendMessage(chatId, summary, { parse_mode: 'Markdown' });
         console.log(`NEW REFUND TICKET from ${username} (${chatId}): Amount: ${state.amount}, Acc: ${state.accountNumber}, Bank: ${state.bankName}, Name: ${state.accountName}`);
+        delete userState[userState[chatId] ? chatId : '']; // clear
         delete userState[chatId];
     }
 }
