@@ -2,12 +2,10 @@ const https = require('https');
 
 const TOKEN = '8410226405:AAEcWtTzMCXOOcseAJ7I8Y75XoChXvqvpus';
 let lastUpdateId = 0;
-const processedUpdates = new Set(); // Prevents duplicate handling
-
-// Track user states for support/refund flow
+const processedUpdates = new Set();
 const userState = {};
 
-console.log("Vandeza bot running with GLO & Network selection...");
+console.log("Vandeza bot running with single-instance UI editor...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -25,7 +23,7 @@ function pollUpdates() {
                         if (processedUpdates.has(update.update_id)) continue;
                         processedUpdates.add(update.update_id);
                         
-                        if (processedUpdates.size > 100) {
+                        if (processedUpdates.size > 150) {
                             const firstKey = processedUpdates.values().next().value;
                             processedUpdates.delete(firstKey);
                         }
@@ -64,32 +62,57 @@ function handleUpdate(update) {
     } 
     else if (update.callback_query) {
         const chatId = update.callback_query.message.chat.id;
+        const messageId = update.callback_query.message.message_id;
         const data = update.callback_query.data;
         const username = update.callback_query.from.username ? `@${update.callback_query.from.username}` : 'No Username';
 
         answerCallbackQuery(update.callback_query.id);
 
         if (data === 'menu_fund') {
+            delete userState[chatId];
             startSupportFlow(chatId);
         } 
         else if (data === 'menu_profile') {
-            sendMessage(chatId, `👤 **My Profile**\n\n* Name: ${update.callback_query.from.first_name}\n* Username: ${username}\n* Wallet Balance: ₦0.00\n* Status: Active Reseller Customer`, { parse_mode: 'Markdown' });
+            const profileText = `👤 **My Profile**\n\n* Name: ${update.callback_query.from.first_name}\n* Username: ${username}\n* Wallet Balance: ₦0.00\n* Status: Active Reseller Customer`;
+            const backKeyboard = { inline_keyboard: [[{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]] };
+            editMessage(chatId, messageId, profileText, backKeyboard);
         } 
         else if (data === 'service_data') {
-            sendNetworkMenu(chatId);
+            sendNetworkMenu(chatId, messageId);
         } 
         else if (data === 'network_glo') {
-            sendGloMenu(chatId);
+            sendGloMenu(chatId, messageId);
         } 
         else if (data.startsWith('buy_glo_')) {
-            // Placeholder for when you connect the Pairgate API purchase call next!
-            sendMessage(chatId, `🚀 *API Order Triggered!*\n\nYou selected: \`${data}\`\nThis will soon forward straight to Pairgate wholesale fulfillment while keeping your markup profit secure!`, { parse_mode: 'Markdown' });
+            const orderText = `🚀 *API Order Triggered!*\n\nYou selected: \`${data}\`\nThis will soon forward straight to Pairgate wholesale fulfillment while keeping your markup profit secure!`;
+            const backKeyboard = { inline_keyboard: [[{ text: '⬅️ Back to Glo Menu', callback_data: 'network_glo' }]] };
+            editMessage(chatId, messageId, orderText, backKeyboard);
         } 
         else if (data === 'main_menu') {
-            sendMainMenu(chatId, update.callback_query.from.first_name || 'User');
+            delete userState[chatId];
+            const welcomeText = `🏛️ *Vandeza*\n\nWelcome to Vandeza! 🚀\nYour premier VTU & Payments Hub, *${update.callback_query.from.first_name}*.`;
+            const keyboard = {
+                inline_keyboard: [
+                    [
+                        { text: '📶 Data & Airtime', callback_data: 'service_data' },
+                        { text: '📺 Cable TV', callback_data: 'service_cable' }
+                    ],
+                    [
+                        { text: '💡 Electricity', callback_data: 'service_electricity' },
+                        { text: '🌐 Internet', callback_data: 'service_internet' }
+                    ],
+                    [
+                        { text: '💳 Fund Wallet / Support', callback_data: 'menu_fund' },
+                        { text: '👤 My Profile', callback_data: 'menu_profile' }
+                    ]
+                ]
+            };
+            editMessage(chatId, messageId, welcomeText, keyboard);
         } 
         else {
-            sendMessage(chatId, `🛠️ **Feature Coming Soon:**\nThe selection \`${data}\` is under configuration, but your fintech hub is live!`, { parse_mode: 'Markdown' });
+            const comingSoonText = `🛠️ **Feature Coming Soon:**\nThe selection \`${data}\` is under configuration, but your fintech hub is live!`;
+            const backKeyboard = { inline_keyboard: [[{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]] };
+            editMessage(chatId, messageId, comingSoonText, backKeyboard);
         }
     }
 }
@@ -118,7 +141,7 @@ function sendMainMenu(chatId, name) {
     sendMessage(chatId, welcomeText, { parse_mode: 'Markdown', reply_markup: keyboard });
 }
 
-function sendNetworkMenu(chatId) {
+function sendNetworkMenu(chatId, messageId) {
     const networkKeyboard = {
         inline_keyboard: [
             [
@@ -134,10 +157,10 @@ function sendNetworkMenu(chatId) {
             ]
         ]
     };
-    sendMessage(chatId, "📶 *Data & Airtime Service*\n\nPlease select your target Network Provider below:", { parse_mode: 'Markdown', reply_markup: networkKeyboard });
+    editMessage(chatId, messageId, "📶 *Data & Airtime Service*\n\nPlease select your target Network Provider below:", networkKeyboard);
 }
 
-function sendGloMenu(chatId) {
+function sendGloMenu(chatId, messageId) {
     const gloKeyboard = {
         inline_keyboard: [
             [
@@ -156,17 +179,15 @@ function sendGloMenu(chatId) {
             ]
         ]
     };
-    sendMessage(chatId, "🟢 *Glo Network Selected*\n\nChoose your preferred GLO data plan below:", { parse_mode: 'Markdown', reply_markup: gloKeyboard });
+    editMessage(chatId, messageId, "🟢 *Glo Network Selected*\n\nChoose your preferred GLO data plan below:", gloKeyboard);
 }
 
 function startSupportFlow(chatId) {
     userState[chatId] = { step: 'awaiting_amount' };
-    
     const msg = `🤝 *Vandeza Support & Overfunding Assistant*\n\n` +
                 `Wallet deposits are strictly locked for automated service purchases (Data, Airtime, Bills).\n\n` +
                 `If you mistakenly overfunded your account and need a manual refund, let's collect your safe bank details.\n\n` +
                 `*Step 1/3:* Please enter the *exact amount* you mistakenly transferred (e.g., ₦5000):`;
-    
     sendMessage(chatId, msg, { parse_mode: 'Markdown' });
 }
 
@@ -190,7 +211,6 @@ function handleSupportInput(chatId, text, username) {
     } 
     else if (state.step === 'awaiting_account_name') {
         state.accountName = text;
-        
         const summary = `🎉 *Refund Request Submitted Successfully!*\n\n` +
                         `Our admin team has received your details for review:\n` +
                         `* Amount: ${state.amount}\n` +
@@ -198,10 +218,8 @@ function handleSupportInput(chatId, text, username) {
                         `* Bank: ${state.bankName}\n` +
                         `* Account Name: ${state.accountName}\n\n` +
                         `Your refund will be processed shortly. Thank you for using Vandeza!`;
-        
         sendMessage(chatId, summary, { parse_mode: 'Markdown' });
         console.log(`NEW REFUND TICKET from ${username} (${chatId}): Amount: ${state.amount}, Acc: ${state.accountNumber}, Bank: ${state.bankName}, Name: ${state.accountName}`);
-
         delete userState[chatId];
     }
 }
@@ -218,13 +236,32 @@ function sendMessage(chatId, text, extra = {}) {
             'Content-Length': Buffer.byteLength(data)
         }
     };
+    const req = https.request(options, (res) => { res.on('data', () => {}); });
+    req.on('error', (e) => { console.error('Error sending message:', e); });
+    req.write(data);
+    req.end();
+}
 
-    const req = https.request(options, (res) => {
-        res.on('data', () => {});
+function editMessage(chatId, messageId, text, keyboard) {
+    const data = JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId,
+        text: text,
+        parse_mode: 'Markdown',
+        reply_markup: keyboard
     });
-    req.on('error', (e) => {
-        console.error('Error sending message:', e);
-    });
+    const options = {
+        hostname: 'api.telegram.org',
+        port: 443,
+        path: `/bot${TOKEN}/editMessageText`,
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(data)
+        }
+    };
+    const req = https.request(options, (res) => { res.on('data', () => {}); });
+    req.on('error', (e) => { console.error('Error editing message:', e); });
     req.write(data);
     req.end();
 }
@@ -241,10 +278,7 @@ function answerCallbackQuery(callbackQueryId) {
             'Content-Length': Buffer.byteLength(data)
         }
     };
-
-    const req = https.request(options, (res) => {
-        res.on('data', () => {});
-    });
+    const req = https.request(options, (res) => { res.on('data', () => {}); });
     req.write(data);
     req.end();
 }
