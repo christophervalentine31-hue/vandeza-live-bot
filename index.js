@@ -7,7 +7,7 @@ const processedUpdates = new Set(); // Prevents duplicate handling
 // Track user states for support/refund flow
 const userState = {};
 
-console.log("Vandeza bot is running clean and optimized...");
+console.log("Vandeza bot running with GLO & Network selection...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -22,11 +22,9 @@ function pollUpdates() {
                     for (let update of response.result) {
                         lastUpdateId = update.update_id;
                         
-                        // Ensure we never process the same update ID twice
                         if (processedUpdates.has(update.update_id)) continue;
                         processedUpdates.add(update.update_id);
                         
-                        // Keep set size small to save memory
                         if (processedUpdates.size > 100) {
                             const firstKey = processedUpdates.values().next().value;
                             processedUpdates.delete(firstKey);
@@ -73,9 +71,24 @@ function handleUpdate(update) {
 
         if (data === 'menu_fund') {
             startSupportFlow(chatId);
-        } else if (data === 'menu_profile') {
+        } 
+        else if (data === 'menu_profile') {
             sendMessage(chatId, `👤 **My Profile**\n\n* Name: ${update.callback_query.from.first_name}\n* Username: ${username}\n* Wallet Balance: ₦0.00\n* Status: Active Reseller Customer`, { parse_mode: 'Markdown' });
-        } else {
+        } 
+        else if (data === 'service_data') {
+            sendNetworkMenu(chatId);
+        } 
+        else if (data === 'network_glo') {
+            sendGloMenu(chatId);
+        } 
+        else if (data.startsWith('buy_glo_')) {
+            // Placeholder for when you connect the Pairgate API purchase call next!
+            sendMessage(chatId, `🚀 *API Order Triggered!*\n\nYou selected: \`${data}\`\nThis will soon forward straight to Pairgate wholesale fulfillment while keeping your markup profit secure!`, { parse_mode: 'Markdown' });
+        } 
+        else if (data === 'main_menu') {
+            sendMainMenu(chatId, update.callback_query.from.first_name || 'User');
+        } 
+        else {
             sendMessage(chatId, `🛠️ **Feature Coming Soon:**\nThe selection \`${data}\` is under configuration, but your fintech hub is live!`, { parse_mode: 'Markdown' });
         }
     }
@@ -103,6 +116,47 @@ function sendMainMenu(chatId, name) {
     };
 
     sendMessage(chatId, welcomeText, { parse_mode: 'Markdown', reply_markup: keyboard });
+}
+
+function sendNetworkMenu(chatId) {
+    const networkKeyboard = {
+        inline_keyboard: [
+            [
+                { text: '🟡 MTN', callback_data: 'network_mtn' },
+                { text: '🔴 Airtel', callback_data: 'network_airtel' }
+            ],
+            [
+                { text: '🟢 Glo', callback_data: 'network_glo' },
+                { text: '📱 9mobile', callback_data: 'network_9mobile' }
+            ],
+            [
+                { text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }
+            ]
+        ]
+    };
+    sendMessage(chatId, "📶 *Data & Airtime Service*\n\nPlease select your target Network Provider below:", { parse_mode: 'Markdown', reply_markup: networkKeyboard });
+}
+
+function sendGloMenu(chatId) {
+    const gloKeyboard = {
+        inline_keyboard: [
+            [
+                { text: 'Glo 500MB (₦300)', callback_data: 'buy_glo_500m' }, 
+                { text: 'Glo 1GB (₦310)', callback_data: 'buy_glo_1gb' }      
+            ],
+            [
+                { text: 'Glo 2GB (₦600)', callback_data: 'buy_glo_2gb' },     
+                { text: 'Glo 3GB (₦1,250)', callback_data: 'buy_glo_3gb' }    
+            ],
+            [
+                { text: 'Glo 5GB (₦1,350)', callback_data: 'buy_glo_5gb' }    
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    sendMessage(chatId, "🟢 *Glo Network Selected*\n\nChoose your preferred GLO data plan below:", { parse_mode: 'Markdown', reply_markup: gloKeyboard });
 }
 
 function startSupportFlow(chatId) {
