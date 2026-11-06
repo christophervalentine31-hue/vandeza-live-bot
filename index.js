@@ -2,15 +2,20 @@ const https = require('https');
 
 const TOKEN = '8410226405:AAEcWtTzMCXOOcseAJ7I8Y75XoChXvqvpus';
 const PAIRGATE_API_KEY = 'PG_live_CCKQ1y20gvzFqHquhedCqNQOjMTBJRqEFdrKSD3uP0Edc';
-const PAYSTACK_SECRET_KEY = 'sk_live_YOUR_PAYSTACK_SECRET_KEY_HERE'; // Replace with your Paystack Secret Key when ready
+
+// Your Verified Manual Funding Account
+const MANUAL_BANK = {
+    bankName: 'OPay',
+    accountNumber: '7083961053',
+    accountName: 'Christopher Valentine'
+};
 
 let lastUpdateId = 0;
 const processedUpdates = new Set();
 const userState = {}; 
-const userWallets = {}; // Stores live wallet balances
-const userVirtualAccounts = {}; // Stores assigned bank account info per user
+const userWallets = {}; // Stores live user wallet balances securely
 
-console.log("Vandeza bot running with automated funding & virtual account support...");
+console.log("Vandeza bot running with manual bank transfer funding & strict wallet gating...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -62,6 +67,20 @@ function handleUpdate(update) {
             delete userState[chatId];
             sendMainMenu(chatId, firstName);
         } 
+        else if (text.startsWith('/credit ') && chatId.toString() === 'YOUR_ADMIN_CHAT_ID') {
+            // Admin command to credit users: /credit CHATID AMOUNT
+            const parts = text.split(' ');
+            const targetChatId = parts[1];
+            const amount = parseFloat(parts[2]);
+            if (targetChatId && !isNaN(amount)) {
+                if (!userWallets[targetChatId]) userWallets[targetChatId] = 0.00;
+                userWallets[targetChatId] += amount;
+                sendMessage(targetChatId, `🎉 *Wallet Credited!*\n\nYour wallet has been credited with ₦${amount.toLocaleString()}. New Balance: ₦${userWallets[targetChatId]}`, { parse_mode: 'Markdown' });
+                sendMessage(chatId, `✅ Successfully credited ${targetChatId} with ₦${amount}.`);
+            } else {
+                sendMessage(chatId, "⚠️ Usage: /credit <chatId> <amount>");
+            }
+        }
         else if (currentState) {
             if (currentState.type === 'data_purchase') {
                 handleDataPurchaseInput(chatId, text);
@@ -86,7 +105,7 @@ function handleUpdate(update) {
 
         if (data === 'menu_fund') {
             delete userState[chatId];
-            showFundingAccount(chatId, messageId, firstName, username);
+            showManualFundingDetails(chatId, messageId);
         } 
         else if (data === 'menu_profile') {
             const balance = userWallets[chatId];
@@ -121,7 +140,7 @@ function handleUpdate(update) {
                 const errorText = `❌ *Insufficient Wallet Balance*\n\n` +
                                   `Selected Plan Cost: \`₦${planPrice}\`\n` +
                                   `Your Wallet Balance: \`₦${userBalance}\`\n\n` +
-                                  `Please fund your dedicated wallet account before purchasing data!`;
+                                  `Please fund your wallet before purchasing data!`;
                 const fundKeyboard = {
                     inline_keyboard: [
                         [{ text: '💳 Fund Wallet Account', callback_data: 'menu_fund' }],
@@ -134,7 +153,6 @@ function handleUpdate(update) {
 
             userState[chatId] = { type: 'data_purchase', planCode: planKey, price: planPrice };
             const parts = planKey.split('_');
-            const net = parts[1].toUpperCase();
             const promptText = `📱 *Enter Recipient Phone Number*\n\nSelected Plan Cost: \`₦${planPrice}\`\n\nPlease type the 11-digit phone number to receive this data (e.g., 08012345678):`;
             const cancelKeyboard = { inline_keyboard: [[{ text: '❌ Cancel', callback_data: `network_${parts[1]}` }]] };
             editMessage(chatId, messageId, promptText, cancelKeyboard);
@@ -179,32 +197,18 @@ function getPlanPrice(planCode) {
     return prices[planCode] || 1000;
 }
 
-// Show Assigned Virtual Account for Funding
-function showFundingAccount(chatId, messageId, firstName, username) {
-    // Check if user already has an assigned virtual account stored, otherwise provide instructions or generate via Paystack
-    let accountInfo = userVirtualAccounts[chatId];
-
-    if (!accountInfo) {
-        // Fallback demo/active bank mapping placeholder until Paystack API live hook is active
-        accountInfo = {
-            bankName: 'Wema Bank (Paystack)',
-            accountNumber: `70${Math.floor(10000000 + Math.random() * 90000000)}`,
-            accountName: `Vandeza - ${firstName}`
-        };
-        userVirtualAccounts[chatId] = accountInfo;
-    }
-
-    const fundingText = `💳 *Automated Wallet Funding*\n\n` +
-                        `To fund your Vandeza account, transfer any amount to your dedicated bank account below. Your wallet will be credited automatically!\n\n` +
-                        `🏦 *Bank Name:* \`${accountInfo.bankName}\`\n` +
-                        `🔢 *Account Number:* \`${accountInfo.accountNumber}\`\n` +
-                        `👤 *Account Name:* \`${accountInfo.accountName}\`\n\n` +
-                        `_Note: Funds deposited here are strictly locked for automated VTU purchases._`;
+// Show Manual Bank Account Details
+function showManualFundingDetails(chatId, messageId) {
+    const fundingText = `💳 *Manual Wallet Funding*\n\n` +
+                        `To fund your Vandeza account, transfer your desired amount to the bank account below:\n\n` +
+                        `🏦 *Bank Name:* \`${MANUAL_BANK.bankName}\`\n` +
+                        `🔢 *Account Number:* \`${MANUAL_BANK.accountNumber}\`\n` +
+                        `👤 *Account Name:* \`${MANUAL_BANK.accountName}\`\n\n` +
+                        `_After making your transfer, send your payment confirmation or receipt to the admin to credit your wallet instantly!_`;
 
     const keyboard = {
         inline_keyboard: [
             [{ text: '🔄 Check Balance', callback_data: 'menu_profile' }],
-            [{ text: '🆘 Need Overfunding Refund', callback_data: 'support_manual' }],
             [{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]
         ]
     };
@@ -256,7 +260,7 @@ function executePairgatePurchase(chatId, planCode, phone, price) {
             try {
                 const result = JSON.parse(responseBody);
                 if (res.statusCode === 200 && (result.status === 'success' || result.success)) {
-                    userWallets[chatId] -= price; // Deduct upon success
+                    userWallets[chatId] -= price; 
                     sendMessage(chatId, `🎉 *Data Purchase Successful!*\n\n` +
                                         `Network: \`${network.toUpperCase()}\`\n` +
                                         `Recipient: \`${phone}\`\n` +
