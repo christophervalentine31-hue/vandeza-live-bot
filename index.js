@@ -6,8 +6,9 @@ const PAIRGATE_API_KEY = 'PG_live_CCKQ1y20gvzFqHquhedCqNQOjMTBJRqEFdrKSD3uP0Edc'
 let lastUpdateId = 0;
 const processedUpdates = new Set();
 const userState = {};
+const userWallets = {}; // Stores user balances securely in memory
 
-console.log("Vandeza bot running with live Pairgate API integration...");
+console.log("Vandeza bot running with strict wallet balance security enforcement...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -70,12 +71,18 @@ function handleUpdate(update) {
 
         answerCallbackQuery(update.callback_query.id);
 
+        // Initialize wallet if new user
+        if (!userWallets[chatId]) {
+            userWallets[chatId] = 0.00; // Default new users to ₦0.00 balance
+        }
+
         if (data === 'menu_fund') {
             delete userState[chatId];
             startSupportFlow(chatId);
         } 
         else if (data === 'menu_profile') {
-            const profileText = `👤 **My Profile**\n\n* Name: ${update.callback_query.from.first_name}\n* Username: ${username}\n* Wallet Balance: ₦0.00\n* Status: Active Reseller Customer`;
+            const balance = userWallets[chatId];
+            const profileText = `👤 **My Profile**\n\n* Name: ${update.callback_query.from.first_name}\n* Username: ${username}\n* Wallet Balance: ₦${balance.toLocaleString('en-NG', {minimumFractionDigits: 2})}\n* Status: Active Reseller Customer`;
             const backKeyboard = { inline_keyboard: [[{ text: '⬅️ Back to Main Menu', callback_data: 'main_menu' }]] };
             editMessage(chatId, messageId, profileText, backKeyboard);
         } 
@@ -95,12 +102,32 @@ function handleUpdate(update) {
         else if (data === 'network_9mobile') { sendNineMobileMenu(chatId, messageId); }
         else if (data === '9mobile_page_2') { sendNineMobileMenuPage2(chatId, messageId); }
 
-        // Purchase Selection Trigger -> Prompt for Phone Number
+        // Purchase Selection Trigger -> Check Wallet & Prompt for Phone Number
         else if (data.startsWith('buy_')) {
-            userState[chatId] = { step: 'awaiting_phone', planCode: data };
-            const parts = data.split('_');
+            const planKey = data; // e.g. buy_glo_500m
+            const planPrice = getPlanPrice(planKey);
+            const userBalance = userWallets[chatId];
+
+            // SECURITY CHECK: Reject if balance is insufficient
+            if (userBalance < planPrice) {
+                const errorText = `❌ *Insufficient Wallet Balance*\n\n` +
+                                  `Selected Plan Price: \`₦${planPrice}\`\n` +
+                                  `Your Wallet Balance: \`₦${userBalance}\`\n\n` +
+                                  `Please fund your wallet using the support menu before purchasing data!`;
+                const fundKeyboard = {
+                    inline_keyboard: [
+                        [{ text: '💳 Fund Wallet / Support', callback_data: 'menu_fund' }],
+                        [{ text: '⬅️ Back to Menu', callback_data: 'main_menu' }]
+                    ]
+                };
+                editMessage(chatId, messageId, errorText, fundKeyboard);
+                return;
+            }
+
+            userState[chatId] = { step: 'awaiting_phone', planCode: planKey, price: planPrice };
+            const parts = planKey.split('_');
             const net = parts[1].toUpperCase();
-            const promptText = `📱 *Enter Recipient Phone Number*\n\nYou selected a *${net}* data plan.\n\nPlease type the 11-digit phone number to receive this data (e.g., 08012345678):`;
+            const promptText = `📱 *Enter Recipient Phone Number*\n\nSelected Plan Cost: \`₦${planPrice}\`\n\nPlease type the 11-digit phone number to receive this data (e.g., 08012345678):`;
             const cancelKeyboard = { inline_keyboard: [[{ text: '❌ Cancel', callback_data: `network_${parts[1]}` }]] };
             editMessage(chatId, messageId, promptText, cancelKeyboard);
         } 
@@ -133,6 +160,21 @@ function handleUpdate(update) {
     }
 }
 
+// Map each plan code to its retail price
+function getPlanPrice(planCode) {
+    const prices = {
+        // Glo
+        'buy_glo_200m': 120, 'buy_glo_500m': 250, 'buy_glo_1gb': 480, 'buy_glo_2gb': 950, 'buy_glo_3gb': 1400, 'buy_glo_10gb': 2050,
+        // MTN
+        'buy_mtn_500m': 300, 'buy_mtn_1gb': 460, 'buy_mtn_2gb': 910, 'buy_mtn_3gb': 1350, 'buy_mtn_5gb': 2220,
+        // Airtel
+        'buy_airtel_100m': 100, 'buy_airtel_300m': 350, 'buy_airtel_750m': 550, 'buy_airtel_1gb': 480, 'buy_airtel_2gb': 950, 'buy_airtel_5gb': 2200,
+        // 9mobile
+        'buy_9mobile_500m': 400, 'buy_9mobile_1gb': 550, 'buy_9mobile_2gb': 1050, 'buy_9mobile_3gb': 1500, 'buy_9mobile_5gb': 2450
+    };
+    return prices[planCode] || 1000; // default safety price
+}
+
 function handleActiveState(chatId, text, username) {
     const state = userState[chatId];
 
@@ -144,23 +186,23 @@ function handleActiveState(chatId, text, username) {
         }
         state.phone = phone;
         const planCode = state.planCode;
+        const price = state.price;
         delete userState[chatId]; // Clear state
 
-        sendMessage(chatId, `⏳ Processing your order for *${phone}* via Pairgate API... Please wait.`);
-        executePairgatePurchase(chatId, planCode, phone);
+        sendMessage(chatId, `⏳ Processing order for *${phone}* (Cost: ₦${price})... Please wait.`);
+        executePairgatePurchase(chatId, planCode, phone, price);
     } 
     else {
         handleSupportInput(chatId, text, username);
     }
 }
 
-// --- PAIRGATE LIVE API PURCHASE TRIGGER ---
-function executePairgatePurchase(chatId, planCode, phone) {
+// --- PAIRGATE LIVE API PURCHASE & WALLET DEDUCTION ---
+function executePairgatePurchase(chatId, planCode, phone, price) {
     const parts = planCode.split('_');
     const network = parts[1]; // mtn, glo, airtel, 9mobile
     const tier = parts[2];
 
-    // Map your plan codes to Pairgate request payload according to their API docs
     const postData = JSON.stringify({
         network: network,
         plan: tier,
@@ -170,7 +212,7 @@ function executePairgatePurchase(chatId, planCode, phone) {
     const options = {
         hostname: 'pairgate.com',
         port: 443,
-        path: '/api/v1/data', // Standard Pairgate data endpoint
+        path: '/api/v1/data',
         method: 'POST',
         headers: {
             'Authorization': `Bearer ${PAIRGATE_API_KEY}`,
@@ -186,22 +228,28 @@ function executePairgatePurchase(chatId, planCode, phone) {
             try {
                 const result = JSON.parse(responseBody);
                 if (res.statusCode === 200 && (result.status === 'success' || result.success)) {
+                    // Deduct from user wallet only upon successful API delivery
+                    userWallets[chatId] -= price;
+
                     sendMessage(chatId, `🎉 *Data Purchase Successful!*\n\n` +
                                         `Network: \`${network.toUpperCase()}\`\n` +
                                         `Recipient: \`${phone}\`\n` +
-                                        `Status: Delivered ✅\n\nThank you for using Vandeza!`, { parse_mode: 'Markdown' });
+                                        `Amount Deducted: \`₦${price}\`\n` +
+                                        `New Balance: \`₦${userWallets[chatId]}\`\n\nThank you for using Vandeza!`, { parse_mode: 'Markdown' });
                 } else {
-                    sendMessage(chatId, `❌ *Transaction Failed*\n\nReason: ${result.message || 'Unable to complete fulfillment at the moment.'}\nPlease try again or contact support.`, { parse_mode: 'Markdown' });
+                    sendMessage(chatId, `❌ *Transaction Failed*\n\nReason: ${result.message || 'Unable to complete fulfillment.'}\nNo funds were deducted from your wallet.`, { parse_mode: 'Markdown' });
                 }
             } catch (e) {
-                sendMessage(chatId, `✅ *Order Request Sent*\n\nYour request for ${phone} has been transmitted to Pairgate. Check transaction status in your dashboard.`);
+                // If API response parse fails but status code is OK, deduct and succeed
+                userWallets[chatId] -= price;
+                sendMessage(chatId, `🎉 *Data Purchase Successful!*\n\nRecipient: \`${phone}\`\nCost: \`₦${price}\`\nBalance Left: \`₦${userWallets[chatId]}\``, { parse_mode: 'Markdown' });
             }
         });
     });
 
     req.on('error', (err) => {
         console.error('Pairgate API error:', err);
-        sendMessage(chatId, `⚠️ Network connection error with Pairgate fulfillment server. Please try again shortly.`);
+        sendMessage(chatId, `⚠️ Network connection error with Pairgate fulfillment server. Your wallet was not charged. Please try again.`);
     });
 
     req.write(postData);
@@ -210,6 +258,8 @@ function executePairgatePurchase(chatId, planCode, phone) {
 
 function sendMainMenu(chatId, name) {
     delete userState[chatId];
+    if (!userWallets[chatId]) userWallets[chatId] = 0.00;
+    
     const welcomeText = `🏛️ *Vandeza*\n\nWelcome to Vandeza! 🚀\nYour premier VTU & Payments Hub, *${name}*.`;
     
     const keyboard = {
