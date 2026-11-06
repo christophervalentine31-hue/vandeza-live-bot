@@ -2,11 +2,12 @@ const https = require('https');
 
 const TOKEN = '8410226405:AAEcWtTzMCXOOcseAJ7I8Y75XoChXvqvpus';
 let lastUpdateId = 0;
+const processedUpdates = new Set(); // Prevents duplicate handling
 
-// Track user states for support/refund flow (e.g., waiting for bank account number)
+// Track user states for support/refund flow
 const userState = {};
 
-console.log("Vandeza bot is running with Fintech UI & Support Assistant...");
+console.log("Vandeza bot is running clean and optimized...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -20,6 +21,17 @@ function pollUpdates() {
                 if (response.ok && response.result) {
                     for (let update of response.result) {
                         lastUpdateId = update.update_id;
+                        
+                        // Ensure we never process the same update ID twice
+                        if (processedUpdates.has(update.update_id)) continue;
+                        processedUpdates.add(update.update_id);
+                        
+                        // Keep set size small to save memory
+                        if (processedUpdates.size > 100) {
+                            const firstKey = processedUpdates.values().next().value;
+                            processedUpdates.delete(firstKey);
+                        }
+
                         handleUpdate(update);
                     }
                 }
@@ -35,13 +47,12 @@ function pollUpdates() {
 }
 
 function handleUpdate(update) {
-    if (update.message) {
+    if (update.message && update.message.text) {
         const chatId = update.message.chat.id;
         const text = update.message.text;
         const firstName = update.message.from.first_name || 'User';
         const username = update.message.from.username ? `@${update.message.from.username}` : 'No Username';
 
-        // Check if user is in a middle of a support/refund input flow
         if (userState[chatId]) {
             handleSupportInput(chatId, text, username);
             return;
@@ -49,8 +60,6 @@ function handleUpdate(update) {
 
         if (text === '/start') {
             sendMainMenu(chatId, firstName);
-        } else if (text === 'support_refund') {
-            startSupportFlow(chatId);
         } else {
             sendMessage(chatId, "Please use the menu buttons below to navigate Vandeza.");
         }
@@ -63,7 +72,6 @@ function handleUpdate(update) {
         answerCallbackQuery(update.callback_query.id);
 
         if (data === 'menu_fund') {
-            // Trigger the support & refund assistant flow
             startSupportFlow(chatId);
         } else if (data === 'menu_profile') {
             sendMessage(chatId, `👤 **My Profile**\n\n* Name: ${update.callback_query.from.first_name}\n* Username: ${username}\n* Wallet Balance: ₦0.00\n* Status: Active Reseller Customer`, { parse_mode: 'Markdown' });
@@ -74,9 +82,7 @@ function handleUpdate(update) {
 }
 
 function sendMainMenu(chatId, name) {
-    // Clear any active state when starting fresh
     delete userState[chatId];
-
     const welcomeText = `🏛️ *Vandeza*\n\nWelcome to Vandeza! 🚀\nYour premier VTU & Payments Hub, *${name}*.`;
     
     const keyboard = {
@@ -131,7 +137,6 @@ function handleSupportInput(chatId, text, username) {
     else if (state.step === 'awaiting_account_name') {
         state.accountName = text;
         
-        // Summary message back to user
         const summary = `🎉 *Refund Request Submitted Successfully!*\n\n` +
                         `Our admin team has received your details for review:\n` +
                         `* Amount: ${state.amount}\n` +
@@ -141,11 +146,8 @@ function handleSupportInput(chatId, text, username) {
                         `Your refund will be processed shortly. Thank you for using Vandeza!`;
         
         sendMessage(chatId, summary, { parse_mode: 'Markdown' });
-
-        // NOTE: In a future upgrade, you can have this forward directly to your admin chat ID!
         console.log(`NEW REFUND TICKET from ${username} (${chatId}): Amount: ${state.amount}, Acc: ${state.accountNumber}, Bank: ${state.bankName}, Name: ${state.accountName}`);
 
-        // Clear user state
         delete userState[chatId];
     }
 }
