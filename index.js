@@ -5,7 +5,7 @@ let lastUpdateId = 0;
 const processedUpdates = new Set();
 const userState = {};
 
-console.log("Vandeza bot running with expanded plans & validity tags...");
+console.log("Vandeza bot running with paginated data hubs & full validity/pricing layout...");
 
 function pollUpdates() {
     const url = `https://api.telegram.org/bot${TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30`;
@@ -80,24 +80,25 @@ function handleUpdate(update) {
         else if (data === 'service_data') {
             sendNetworkMenu(chatId, messageId);
         } 
-        // Network Menus
-        else if (data === 'network_mtn') {
-            sendMtnMenu(chatId, messageId);
-        }
-        else if (data === 'network_airtel') {
-            sendAirtelMenu(chatId, messageId);
-        }
-        else if (data === 'network_glo') {
-            sendGloMenu(chatId, messageId);
-        }
-        else if (data === 'network_9mobile') {
-            sendNineMobileMenu(chatId, messageId);
-        }
+        // Network Menus & Pages
+        else if (data === 'network_mtn') { sendMtnMenu(chatId, messageId); }
+        else if (data === 'mtn_page_2') { sendMtnMenuPage2(chatId, messageId); }
+
+        else if (data === 'network_airtel') { sendAirtelMenu(chatId, messageId); }
+        else if (data === 'airtel_page_2') { sendAirtelMenuPage2(chatId, messageId); }
+
+        else if (data === 'network_glo') { sendGloMenu(chatId, messageId); }
+        else if (data === 'glo_page_2') { sendGloMenuPage2(chatId, messageId); }
+
+        else if (data === 'network_9mobile') { sendNineMobileMenu(chatId, messageId); }
+        else if (data === '9mobile_page_2') { sendNineMobileMenuPage2(chatId, messageId); }
+
         // Purchase Handlers
         else if (data.startsWith('buy_glo_') || data.startsWith('buy_mtn_') || data.startsWith('buy_airtel_') || data.startsWith('buy_9mobile_')) {
-            const networkPrefix = data.split('_')[1].toUpperCase();
+            const netKey = data.split('_')[1];
+            const networkPrefix = netKey.toUpperCase();
             const orderText = `🚀 *API Order Triggered!*\n\nNetwork: \`${networkPrefix}\`\nSelected Code: \`${data}\`\n\nThis will connect to Pairgate wholesale fulfillment while keeping your markup profit secure!`;
-            const backKeyboard = { inline_keyboard: [[{ text: `⬅️ Back to ${networkPrefix} Menu`, callback_data: `network_${data.split('_')[1]}` }]] };
+            const backKeyboard = { inline_keyboard: [[{ text: `⬅️ Back to ${networkPrefix} Menu`, callback_data: `network_${netKey}` }]] };
             editMessage(chatId, messageId, orderText, backKeyboard);
         } 
         else if (data === 'main_menu') {
@@ -172,101 +173,177 @@ function sendNetworkMenu(chatId, messageId) {
     editMessage(chatId, messageId, "📶 *Data & Airtime Service*\n\nPlease select your target Network Provider below:", networkKeyboard);
 }
 
-// GLO Menu (Expanded with Validity & Tiers)
+// --- GLO PAGINATED MENU ---
 function sendGloMenu(chatId, messageId) {
     const gloKeyboard = {
         inline_keyboard: [
             [
-                { text: 'Glo 500MB (14 Days) - ₦300', callback_data: 'buy_glo_500m' }, 
-                { text: 'Glo 1GB (30 Days) - ₦310', callback_data: 'buy_glo_1gb' }      
+                { text: '100MB (1D) - ₦50', callback_data: 'buy_glo_100m' }, 
+                { text: '500MB (14D) - ₦300', callback_data: 'buy_glo_500m' }      
             ],
             [
-                { text: 'Glo 2GB (30 Days) - ₦600', callback_data: 'buy_glo_2gb' },     
-                { text: 'Glo 3GB (30 Days) - ₦1,250', callback_data: 'buy_glo_3gb' }    
+                { text: '1GB (30D) - ₦310', callback_data: 'buy_glo_1gb' },     
+                { text: '2GB (30D) - ₦600', callback_data: 'buy_glo_2gb' }    
             ],
             [
-                { text: 'Glo 5GB (30 Days) - ₦1,350', callback_data: 'buy_glo_5gb' },
-                { text: 'Glo 10GB (30 Days) - ₦2,650', callback_data: 'buy_glo_10gb' }
+                { text: 'Next Page ➡️', callback_data: 'glo_page_2' }
             ],
             [
                 { text: '⬅️ Back to Networks', callback_data: 'service_data' }
             ]
         ]
     };
-    editMessage(chatId, messageId, "🟢 *Glo Data Hub*\n*All plans feature guaranteed validity.* Choose your preferred option:", gloKeyboard);
+    editMessage(chatId, messageId, "🟢 *Glo Data Hub (Page 1/2)*\n*Select a plan or view larger tiers below:*", gloKeyboard);
 }
 
-// MTN Menu (Expanded with Validity & Tiers)
+function sendGloMenuPage2(chatId, messageId) {
+    const gloKeyboardPage2 = {
+        inline_keyboard: [
+            [
+                { text: '3GB (30D) - ₦1,250', callback_data: 'buy_glo_3gb' },
+                { text: '5GB (30D) - ₦1,350', callback_data: 'buy_glo_5gb' }
+            ],
+            [
+                { text: '10GB (30D) - ₦2,650', callback_data: 'buy_glo_10gb' }
+            ],
+            [
+                { text: '⬅️ Previous Page', callback_data: 'network_glo' }
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    editMessage(chatId, messageId, "🟢 *Glo Data Hub (Page 2/2)*\n*Heavyweight plans for maximum streaming:*", gloKeyboardPage2);
+}
+
+// --- MTN PAGINATED MENU ---
 function sendMtnMenu(chatId, messageId) {
     const mtnKeyboard = {
         inline_keyboard: [
             [
-                { text: 'MTN 500MB (30 Days) - ₦150', callback_data: 'buy_mtn_500m' },
-                { text: 'MTN 1GB (30 Days) - ₦290', callback_data: 'buy_mtn_1gb' }
+                { text: '100MB (24h) - ₦50', callback_data: 'buy_mtn_100m' },
+                { text: '500MB (30D) - ₦150', callback_data: 'buy_mtn_500m' }
             ],
             [
-                { text: 'MTN 2GB (30 Days) - ₦580', callback_data: 'buy_mtn_2gb' },
-                { text: 'MTN 3GB (30 Days) - ₦870', callback_data: 'buy_mtn_3gb' }
+                { text: '1GB (30D) - ₦290', callback_data: 'buy_mtn_1gb' },
+                { text: '2GB (30D) - ₦580', callback_data: 'buy_mtn_2gb' }
             ],
             [
-                { text: 'MTN 5GB (30 Days) - ₦1,450', callback_data: 'buy_mtn_5gb' },
-                { text: 'MTN 10GB (30 Days) - ₦2,900', callback_data: 'buy_mtn_10gb' }
+                { text: 'Next Page ➡️', callback_data: 'mtn_page_2' }
             ],
             [
                 { text: '⬅️ Back to Networks', callback_data: 'service_data' }
             ]
         ]
     };
-    editMessage(chatId, messageId, "🟡 *MTN Data Hub*\n*All plans are Corporate/SME with 30-Day validity.*\n\nChoose your preferred MTN data plan:", mtnKeyboard);
+    editMessage(chatId, messageId, "🟡 *MTN Data Hub (Page 1/2)*\n*Corporate/SME 30-Day packages:*", mtnKeyboard);
 }
 
-// Airtel Menu (Expanded with Validity & Tiers)
+function sendMtnMenuPage2(chatId, messageId) {
+    const mtnKeyboardPage2 = {
+        inline_keyboard: [
+            [
+                { text: '3GB (30D) - ₦870', callback_data: 'buy_mtn_3gb' },
+                { text: '5GB (30D) - ₦1,450', callback_data: 'buy_mtn_5gb' }
+            ],
+            [
+                { text: '10GB (30D) - ₦2,900', callback_data: 'buy_mtn_10gb' }
+            ],
+            [
+                { text: '⬅️ Previous Page', callback_data: 'network_mtn' }
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    editMessage(chatId, messageId, "🟡 *MTN Data Hub (Page 2/2)*\n*Larger volume tiers:*", mtnKeyboardPage2);
+}
+
+// --- AIRTEL PAGINATED MENU ---
 function sendAirtelMenu(chatId, messageId) {
     const airtelKeyboard = {
         inline_keyboard: [
             [
-                { text: 'Airtel 100MB (1 Day) - ₦100', callback_data: 'buy_airtel_100m' },
-                { text: 'Airtel 300MB (7 Days) - ₦300', callback_data: 'buy_airtel_300m' }
+                { text: '100MB (1D) - ₦50', callback_data: 'buy_airtel_100m' },
+                { text: '300MB (7D) - ₦300', callback_data: 'buy_airtel_300m' }
             ],
             [
-                { text: 'Airtel 750MB (14 Days) - ₦500', callback_data: 'buy_airtel_750m' },
-                { text: 'Airtel 1GB (30 Days) - ₦320', callback_data: 'buy_airtel_1gb' }
+                { text: '750MB (14D) - ₦500', callback_data: 'buy_airtel_750m' },
+                { text: '1GB (30D) - ₦320', callback_data: 'buy_airtel_1gb' }
             ],
             [
-                { text: 'Airtel 2GB (30 Days) - ₦620', callback_data: 'buy_airtel_2gb' },
-                { text: 'Airtel 5GB (30 Days) - ₦1,500', callback_data: 'buy_airtel_5gb' }
+                { text: 'Next Page ➡️', callback_data: 'airtel_page_2' }
             ],
             [
                 { text: '⬅️ Back to Networks', callback_data: 'service_data' }
             ]
         ]
     };
-    editMessage(chatId, messageId, "🔴 *Airtel Data Hub*\n*Clear validities displayed per tier.*\n\nChoose your preferred Airtel data plan:", airtelKeyboard);
+    editMessage(chatId, messageId, "🔴 *Airtel Data Hub (Page 1/2)*\n*Flexible options & validities:*", airtelKeyboard);
 }
 
-// 9mobile Menu (Expanded with Validity & Tiers)
+function sendAirtelMenuPage2(chatId, messageId) {
+    const airtelKeyboardPage2 = {
+        inline_keyboard: [
+            [
+                { text: '2GB (30D) - ₦620', callback_data: 'buy_airtel_2gb' },
+                { text: '5GB (30D) - ₦1,500', callback_data: 'buy_airtel_5gb' }
+            ],
+            [
+                { text: '⬅️ Previous Page', callback_data: 'network_airtel' }
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    editMessage(chatId, messageId, "🔴 *Airtel Data Hub (Page 2/2)*\n*Higher volume plans:*", airtelKeyboardPage2);
+}
+
+// --- 9MOBILE PAGINATED MENU ---
 function sendNineMobileMenu(chatId, messageId) {
     const nineMobileKeyboard = {
         inline_keyboard: [
             [
-                { text: '9mobile 500MB (30 Days) - ₦350', callback_data: 'buy_9mobile_500m' },
-                { text: '9mobile 1GB (30 Days) - ₦500', callback_data: 'buy_9mobile_1gb' }
+                { text: '100MB (1D) - ₦50', callback_data: 'buy_9mobile_100m' },
+                { text: '500MB (30D) - ₦350', callback_data: 'buy_9mobile_500m' }
             ],
             [
-                { text: '9mobile 2GB (30 Days) - ₦950', callback_data: 'buy_9mobile_2gb' },
-                { text: '9mobile 3GB (30 Days) - ₦1,400', callback_data: 'buy_9mobile_3gb' }
+                { text: '1GB (30D) - ₦500', callback_data: 'buy_9mobile_1gb' },
+                { text: '2GB (30D) - ₦950', callback_data: 'buy_9mobile_2gb' }
             ],
             [
-                { text: '9mobile 5GB (30 Days) - ₦2,300', callback_data: 'buy_9mobile_5gb' }
+                { text: 'Next Page ➡️', callback_data: '9mobile_page_2' }
             ],
             [
                 { text: '⬅️ Back to Networks', callback_data: 'service_data' }
             ]
         ]
     };
-    editMessage(chatId, messageId, "📱 *9mobile Data Hub*\n*Stable 30-Day network packages.*\n\nChoose your preferred 9mobile data plan:", nineMobileKeyboard);
+    editMessage(chatId, messageId, "📱 *9mobile Data Hub (Page 1/2)*\n*Affordable daily & monthly options:*", nineMobileKeyboard);
 }
 
+function sendNineMobileMenuPage2(chatId, messageId) {
+    const nineMobileKeyboardPage2 = {
+        inline_keyboard: [
+            [
+                { text: '3GB (30D) - ₦1,400', callback_data: 'buy_9mobile_3gb' },
+                { text: '5GB (30D) - ₦2,300', callback_data: 'buy_9mobile_5gb' }
+            ],
+            [
+                { text: '⬅️ Previous Page', callback_data: 'network_9mobile' }
+            ],
+            [
+                { text: '⬅️ Back to Networks', callback_data: 'service_data' }
+            ]
+        ]
+    };
+    editMessage(chatId, messageId, "📱 *9mobile Data Hub (Page 2/2)*\n*Larger data packages:*", nineMobileKeyboardPage2);
+}
+
+// --- SUPPORT / REFUND FLOW ---
 function startSupportFlow(chatId) {
     userState[chatId] = { step: 'awaiting_amount' };
     const msg = `🤝 *Vandeza Support & Overfunding Assistant*\n\n` +
